@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="id">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Aplikasi Kasir AI Pintar</title>
+    <!-- Script untuk CSS Tailwind -->
+    <script src="https://jsdelivr.net"></script>
+    <style>
+  /* Kondisi saat aplikasi dibuka normal di layar komputer/HP */
+  .print-only { display: none !important; }
+
+  /* Kondisi otomatis saat tombol "Selesai & Cetak Struk" ditekan */
+  @media print {
+    .no-print { display: none !important; }
+    .print-only { display: block !important; }
+    
+    /* Mengunci ukuran kertas murni mengikuti lebar printer kasir thermal 58mm */
+    @page {
+      size: 58mm auto;
+      margin: 0;
+    }
+    body {
+      background-color: white;
+      margin: 0;
+      padding: 0;
+    }
+  }
+</style>
+  </head>
+  <body class="bg-gray-100">
+    <!-- Tempat aplikasi React Anda akan muncul -->
+    <div id="root"></div>
+    
+    <!-- Menghubungkan ke file utama React -->
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>

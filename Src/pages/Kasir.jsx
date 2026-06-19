@@ -1,0 +1,278 @@
+import React, { useState, useEffect } from 'react';
+import { supabase } from '../supabaseClient'; 
+
+export default function Kasir() {
+  const [produkList, setProdukList] = useState([]);
+  const [kataKunci, setKataKunci] = useState(''); 
+  const [keranjang, setKeranjang] = useState([]);
+  const [bayar, setBayar] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [notaTerakhir, setNotaTerakhir] = useState(null); 
+
+  useEffect(() => {
+    ambilDataProduk();
+  }, []);
+
+  const ambilDataProduk = async () => {
+    const { data, error } = await supabase.from('produk').select('*').order('nama_produk', { ascending: true });
+    if (!error) setProdukList(data || []);
+  };
+
+  const tambahKeKeranjang = (produk) => {
+    const ada = keranjang.find((item) => item.id === produk.id);
+    if (ada) {
+      if (ada.qty >= produk.stok) return alert('Stok produk tidak mencukupi!');
+      setKeranjang(keranjang.map((item) => item.id === produk.id ? { ...ada, qty: ada.qty + 1 } : item));
+    } else {
+      if (produk.stok < 1) return alert('Stok produk habis!');
+      setKeranjang([...keranjang, { ...produk, qty: 1 }]);
+    }
+  };
+
+  const hapusDariKeranjang = (id) => {
+    setKeranjang(keranjang.filter((item) => item.id !== id));
+  };
+
+  const totalHarga = keranjang.reduce((sum, item) => sum + (item.harga * item.qty), 0);
+  const kembalian = Number(bayar) - totalHarga;
+
+  const produkTersaring = produkList.filter((p) =>
+    p.nama_produk.toLowerCase().includes(kataKunci.toLowerCase())
+  );
+
+  const prosesPembayaran = async () => {
+    if (keranjang.length === 0) return alert('Keranjang masih kosong!');
+    if (!bayar || Number(bayar) < totalHarga) return alert('Uang pembayaran kurang!');
+    setLoading(true);
+
+    try {
+      const { data: transaksiBaru, error: errTx } = await supabase
+        .from('transaksi')
+        .insert([{ total_harga: Number(totalHarga), total_bayar: Number(bayar), kembalian: Number(kembalian) }])
+        .select().single();
+
+      if (errTx) throw errTx;
+
+      const detailData = keranjang.map((item) => ({
+        transaksi_id: Number(transaksiBaru.id),
+        produk_id: Number(item.id),
+        jumlah: Number(item.qty),
+        subtotal: Number(item.harga * item.qty),
+      }));
+
+      const { error: errDetail } = await supabase.from('detail_transaksi').insert(detailData);
+      if (errDetail) throw errDetail;
+
+      for (const item of keranjang) {
+        await supabase.from('produk').update({ stok: Number(item.stok - item.qty) }).eq('id', item.id);
+      }
+
+      setNotaTerakhir({
+        id: transaksiBaru.id,
+        tanggal: transaksiBaru.tanggal_transaksi,
+        items: [...keranjang],
+        total: totalHarga,
+        bayar: Number(bayar),
+        kembali: kembalian
+      });
+
+      alert('Transaksi Berhasil Disimpan!');
+      
+      setTimeout(() => {
+        window.print();
+        setKeranjang([]);
+        setBayar('');
+        setNotaTerakhir(null);
+        ambilDataProduk(); 
+      }, 500);
+
+    } catch (error) {
+      alert('Gagal memproses transaksi: ' + error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+  return (
+    <div className="flex h-[calc(100vh-80px)] bg-gray-50 p-6 gap-6 min-h-screen">
+      
+      {/* SISI KIRI: MENU PRODUK FORMASI GRID HORIZONTAL */}
+      <div className="w-7/12 bg-white p-6 rounded-2xl border border-gray-100 shadow-md flex flex-col no-print">
+        <div className="mb-6 flex flex-col gap-2">
+          <h2 className="text-2xl font-black text-gray-900 tracking-tight">Menu Transaksi</h2>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+            <label htmlFor="cari_barang" style={{ fontSize: '11px', fontWeight: '700', color: '#4b5563', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+              Pencarian Cepat Barang
+            </label>
+            <input type="text" id="cari_barang" value={kataKunci} onChange={(e) => setKataKunci(e.target.value)} placeholder="Ketik nama produk..." 
+              style={{ width: '100%', padding: '8px 0', border: 'none', borderBottom: '2px solid #e5e7eb', backgroundColor: 'transparent', color: '#1f2937', fontWeight: '500', outline: 'none', transition: 'border-color 0.2s' }}
+              onFocus={(e) => e.target.style.borderBottom = '2px solid #4f46e5'}
+              onBlur={(e) => e.target.style.borderBottom = '2px solid #e5e7eb'} />
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-y-auto pr-1">
+          {produkTersaring.length === 0 ? (
+            <p className="text-gray-400 italic text-sm text-center pt-20">Produk tidak ditemukan.</p>
+          ) : (
+            // MEMAKSA FORMASI MENJADI GRID HORIZONTAL (3 KOLOM BERJAJAR KE SAMPING)
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, minmax(0, 1fr))', gap: '12px' }}>
+              {produkTersaring.map((p) => (
+                <button 
+                  key={p.id} 
+                  onClick={() => tambahKeKeranjang(p)} 
+                  style={{ 
+                    padding: '16px', 
+                    borderRadius: '16px', 
+                    border: '1px solid #e5e7eb', 
+                    backgroundColor: 'white',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    justifyContent: 'space-between',
+                    height: '130px', // Sedikit diperpendek agar menghemat area layar
+                    textAlign: 'left',
+                    boxShadow: '0 1px 3px 0 rgba(0,0,0,0.05)',
+                    transition: 'all 0.2s',
+                    cursor: 'pointer',
+                    width: '100%' // Mengunci lebar penuh mengikuti kolom gridnya
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.borderColor = '#a5b4fc';
+                    e.currentTarget.style.backgroundColor = '#fafafa';
+                    e.currentTarget.style.boxShadow = '0 4px 6px -1px rgba(0,0,0,0.05)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.borderColor = '#e5e7eb';
+                    e.currentTarget.style.backgroundColor = 'white';
+                    e.currentTarget.style.boxShadow = '0 1px 3px 0 rgba(0,0,0,0.05)';
+                  }}
+                >
+                  <div className="w-full" style={{ flex: 1 }}>
+                    <p className="font-extrabold text-gray-800 text-sm line-clamp-2 leading-snug tracking-tight m-0">{p.nama_produk}</p>
+                    <span className={`inline-block mt-2 px-2.5 py-0.5 rounded-lg font-bold text-[9px] uppercase tracking-wider ${p.stok <= 5 ? 'bg-orange-50 text-orange-600 border border-orange-200' : 'bg-gray-100 text-gray-500'}`}>
+                      Stok: {p.stok}
+                    </span>
+                  </div>
+                  <p className="font-black text-indigo-600 text-base mt-2 tracking-tight m-0">Rp {p.harga.toLocaleString()}</p>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* SISI KANAN: KERANJANG BELANJA BERBENTUK TABEL */}
+      <div className="w-5/12 bg-white p-6 rounded-2xl border border-gray-100 shadow-md flex flex-col justify-between no-print">
+        <div className="flex flex-col flex-1 overflow-hidden">
+          <h2 className="text-xl font-bold text-gray-800 mb-4 border-b border-gray-100 pb-2 flex items-center justify-between">
+            <span>Keranjang Belanja</span>
+            <span className="text-xs bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-md font-bold">{keranjang.length} Jenis</span>
+          </h2>
+          
+          <div className="overflow-y-auto flex-1 pr-1 mb-4">
+            {keranjang.length === 0 ? (
+              <div className="text-center pt-24 text-gray-400 italic text-sm">Keranjang belanja masih kosong</div>
+            ) : (
+              <div style={{ border: '1px solid #e5e7eb', borderRadius: '12px', overflow: 'hidden' }}>
+                <table style={{ width: '100%', textAlign: 'left', borderCollapse: 'collapse', fontSize: '12px' }}>
+                  <thead>
+                    <tr style={{ backgroundColor: '#f9fafb', color: '#4b5563', fontWeight: 'bold', borderBottom: '2px solid #e5e7eb' }}>
+                      <th style={{ padding: '10px' }}>Nama</th>
+                      <th style={{ padding: '10px', textAlign: 'center' }}>Qty</th>
+                      <th style={{ padding: '10px', textAlign: 'right' }}>Total</th>
+                      <th style={{ padding: '10px', textAlign: 'center' }}>Aksi</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {keranjang.map((item) => (
+                      <tr key={item.id} style={{ borderBottom: '1px solid #f3f4f6' }}>
+                        <td style={{ padding: '10px', fontWeight: '600', color: '#111827', maxWidth: '120px', wordBreak: 'break-word' }}>
+                          {item.nama_produk}
+                          <span style={{ display: 'block', fontSize: '10px', fontWeight: 'normal', color: '#9ca3af', marginTop: '2px' }}>@Rp{item.harga.toLocaleString()}</span>
+                        </td>
+                        <td style={{ padding: '10px', textAlign: 'center', fontWeight: 'bold', color: '#4b5563' }}>{item.qty}</td>
+                        <td style={{ padding: '10px', textAlign: 'right', fontWeight: 'bold', color: '#111827' }}>Rp {(item.harga * item.qty).toLocaleString()}</td>
+                        <td style={{ padding: '10px', textAlign: 'center' }}>
+                          <button onClick={() => hapusDariKeranjang(item.id)} className="text-gray-400 hover:text-red-500 transition text-sm p-1 rounded hover:bg-red-50">🗑️</button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="border-t border-gray-100 pt-4 space-y-4">
+          <div className="flex justify-between font-black text-xl text-gray-900">
+            <span>Total Tagihan:</span>
+            <span className="text-indigo-600">Rp {totalHarga.toLocaleString()}</span>
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+            <label htmlFor="jumlah_bayar" style={{ fontSize: '11px', fontWeight: '700', color: '#4b5563', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Jumlah Uang Bayar</label>
+            <input type="number" id="jumlah_bayar" value={bayar || ''} placeholder="Contoh: 50000" onChange={(e) => setBayar(e.target.value)} 
+              style={{ width: '100%', padding: '8px 0', border: 'none', borderBottom: '2px solid #e5e7eb', backgroundColor: 'transparent', color: '#1f2937', fontWeight: '700', fontSize: '16px', outline: 'none', transition: 'border-color 0.2s' }}
+              onFocus={(e) => e.target.style.borderBottom = '2px solid #4f46e5'}
+              onBlur={(e) => e.target.style.borderBottom = '2px solid #e5e7eb'} />
+          </div>
+
+          <div className="flex justify-between text-sm font-semibold text-gray-500">
+            <span>Uang Kembali:</span>
+            <span className={kembalian >= 0 ? "text-emerald-600 font-extrabold text-base" : "text-rose-500 font-bold"}>Rp {kembalian > 0 && bayar ? kembalian.toLocaleString() : 0}</span>
+          </div>
+          
+          <button onClick={prosesPembayaran} disabled={loading || keranjang.length === 0} className="w-full bg-gradient-to-r from-indigo-600 to-blue-600 text-white py-4 rounded-xl font-bold hover:opacity-95 transition disabled:from-gray-300 disabled:to-gray-400 shadow-md">
+            {loading ? 'Menyimpan Nota...' : '🏁 Selesai & Cetak Struk'}
+          </button>
+        </div>
+      </div>
+
+      {/* STRUK THERMAL MINI (Hanya Muncul Saat Proses Cetak) */}
+      {notaTerakhir && (
+        <div className="print-only" style={{ width: '58mm', padding: '0 2mm', fontFamily: 'monospace', fontSize: '11px', color: 'black', backgroundColor: 'white' }}>
+          <div style={{ textAlign: 'center', marginBottom: '10px' }}>
+            <h3 style={{ margin: '0 0 4px 0', fontSize: '14px', fontWeight: 'bold' }}>TOKO PINTAR AI</h3>
+            <p style={{ margin: '0', fontSize: '10px' }}>Jl. Raya Utama No. 123</p>
+            <p style={{ margin: '5px 0' }}>--------------------------------</p>
+          </div>
+          <div style={{ marginBottom: '5px' }}>
+            <p style={{ margin: '0' }}>Nota  : #TX-{notaTerakhir.id}</p>
+            <p style={{ margin: '0' }}>Waktu : {new Date(notaTerakhir.tanggal).toLocaleString('id-ID')}</p>
+            <p style={{ margin: '5px 0' }}>--------------------------------</p>
+          </div>
+          <div style={{ marginBottom: '5px' }}>
+            {notaTerakhir.items.map((item) => (
+              <div key={item.id} style={{ marginBottom: '6px' }}>
+                <p style={{ margin: '0', fontWeight: 'bold' }}>{item.nama_produk}</p>
+                <div style={{ display: 'flex', justifyContent: 'between', fontSize: '10px' }}>
+                  <span>{item.qty} x Rp {item.harga.toLocaleString()}</span>
+                  <span style={{ marginLeft: 'auto' }}>Rp {(item.harga * item.qty).toLocaleString()}</span>
+                </div>
+              </div>
+            ))}
+            <p style={{ margin: '5px 0' }}>--------------------------------</p>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', alignItems: 'end' }}>
+            <div style={{ display: 'flex', width: '100%' }}>
+              <span>TOTAL:</span>
+              <span style={{ marginLeft: 'auto', fontWeight: 'bold' }}>Rp {notaTerakhir.total.toLocaleString()}</span>
+            </div>
+            <div style={{ display: 'flex', width: '100%' }}>
+              <span>BAYAR:</span>
+              <span style={{ marginLeft: 'auto' }}>Rp {notaTerakhir.bayar.toLocaleString()}</span>
+            </div>
+            <div style={{ display: 'flex', width: '100%', fontWeight: 'bold' }}>
+              <span>KEMBALI:</span>
+              <span style={{ marginLeft: 'auto' }}>Rp {notaTerakhir.kembali.toLocaleString()}</span>
+            </div>
+          </div>
+          <div style={{ textAlign: 'center', marginTop: '15px' }}>
+            <p style={{ margin: '0', fontStyle: 'italic' }}>-- Terima Kasih --</p>
+          </div>
+        </div>
+      )}
+
+    </div>
+  );
+}
