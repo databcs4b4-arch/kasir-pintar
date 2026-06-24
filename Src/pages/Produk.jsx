@@ -10,6 +10,10 @@ export default function Produk() {
   const [barcode, setBarcode] = useState('');
   const [loading, setLoading] = useState(false);
 
+  // Mengambil data status role user yang sedang aktif login secara aman dari sessionStorage
+  const roleUserLokal = sessionStorage.getItem('userRole') || 'User'; 
+  const statusHakAksesKasir = roleUserLokal === 'User';
+
   useEffect(() => {
     ambilProduk();
   }, []);
@@ -21,6 +25,7 @@ export default function Produk() {
 
   const simpanProduk = async (e) => {
     e.preventDefault();
+    if (statusHakAksesKasir) return alert('Akses ditolak! Staff kasir dilarang memanipulasi data inventori.');
     if (!nama || !harga || !stok) return alert('Mohon isi semua data utama!');
     setLoading(true);
 
@@ -54,6 +59,7 @@ export default function Produk() {
   };
 
   const pemicuEdit = (produk) => {
+    if (statusHakAksesKasir) return;
     setIdEdit(produk.id);
     setNama(produk.nama_produk);
     setHarga(produk.harga);
@@ -71,6 +77,7 @@ export default function Produk() {
   };
 
   const hapusProduk = async (id, namaProduk) => {
+    if (statusHakAksesKasir) return alert('Akses ditolak!');
     const konfirmasi = window.confirm(`Apakah Anda yakin ingin menghapus produk "${namaProduk}"?`);
     if (!konfirmasi) return;
 
@@ -83,14 +90,16 @@ export default function Produk() {
       ambilProduk();
     }
   };
+
   return (
     <div className="p-8 max-w-6xl mx-auto bg-gray-50 min-h-screen space-y-8">
       <div>
         <h2 className="text-3xl font-black text-gray-900 tracking-tight">Kelola Inventori</h2>
-        <p className="text-sm text-gray-500 mt-1">Tambah, ubah, dan hapus ketersediaan produk toko Anda secara real-time.</p>
+        <p className="text-sm text-gray-500 mt-1">
+          {statusHakAksesKasir ? "Mode Lihat Stok Aktif (Hanya Baca Data)" : "Tambah, ubah, dan hapus ketersediaan produk toko Anda secara real-time."}
+        </p>
       </div>
       
-      {/* Form Input Barang Desain Minimalis Tanpa Kotak Tegas */}
       <form onSubmit={simpanProduk} className="bg-white p-8 rounded-2xl border border-gray-100 shadow-xl space-y-6">
         <div className="flex justify-between items-center border-b border-gray-100 pb-2">
           <h3 className="font-bold text-base text-gray-700 flex items-center gap-2">
@@ -103,63 +112,33 @@ export default function Produk() {
           )}
         </div>
 
-        {/* Layout Susunan Horizontal Menjalar ke Samping */}
         <div style={{ display: 'flex', flexDirection: 'row', width: '100%', gap: '20px', flexWrap: 'wrap' }}>
-          
-          {/* Field 1: Nama Produk */}
           <div style={{ flex: 2, minWidth: '200px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
-            <label htmlFor="nama_produk" style={{ fontSize: '12px', fontWeight: '700', color: '#4b5563', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-              Nama Produk
-            </label>
-            <input type="text" id="nama_produk" value={nama} onChange={(e) => setNama(e.target.value)} required placeholder="Masukkan nama barang..." 
-              style={{ width: '100%', padding: '8px 0', border: 'none', borderBottom: '2px solid #e5e7eb', backgroundColor: 'transparent', color: '#1f2937', fontWeight: '500', outline: 'none', transition: 'border-color 0.2s' }}
-              onFocus={(e) => e.target.style.borderBottom = '2px solid #4f46e5'}
-              onBlur={(e) => e.target.style.borderBottom = '2px solid #e5e7eb'} />
+            <label htmlFor="nama_produk" style={{ fontSize: '12px', fontWeight: '700', color: '#4b5563', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Nama Produk</label>
+            <input type="text" id="nama_produk" value={nama} onChange={(e) => setNama(e.target.value)} required placeholder={statusHakAksesKasir ? "Terkunci (Hanya Baca)" : "Masukkan nama barang..."} disabled={statusHakAksesKasir} style={{ width: '100%', padding: '8px 0', border: 'none', borderBottom: '2px solid #e5e7eb', backgroundColor: 'transparent', color: statusHakAksesKasir ? '#9ca3af' : '#1f2937', fontWeight: '500', outline: 'none', transition: 'border-color 0.2s', cursor: statusHakAksesKasir ? 'not-allowed' : 'text' }} onFocus={(e) => { if (!statusHakAksesKasir) e.target.style.borderBottom = '2px solid #4f46e5' }} onBlur={(e) => { if (!statusHakAksesKasir) e.target.style.borderBottom = '2px solid #e5e7eb' }} />
           </div>
 
-          {/* Field 2: Harga Jual */}
           <div style={{ flex: 1, minWidth: '130px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
-            <label htmlFor="harga_jual" style={{ fontSize: '12px', fontWeight: '700', color: '#4b5563', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-              Harga (Rp)
-            </label>
-            <input type="number" id="harga_jual" value={harga} onChange={(e) => setHarga(e.target.value)} required placeholder="Contoh: 15000" 
-              style={{ width: '100%', padding: '8px 0', border: 'none', borderBottom: '2px solid #e5e7eb', backgroundColor: 'transparent', color: '#1f2937', fontWeight: '500', outline: 'none', transition: 'border-color 0.2s' }}
-              onFocus={(e) => e.target.style.borderBottom = '2px solid #4f46e5'}
-              onBlur={(e) => e.target.style.borderBottom = '2px solid #e5e7eb'} />
+            <label htmlFor="harga_jual" style={{ fontSize: '12px', fontWeight: '700', color: '#4b5563', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Harga (Rp)</label>
+            <input type="number" id="harga_jual" value={harga} onChange={(e) => setHarga(e.target.value)} required placeholder={statusHakAksesKasir ? "Terkunci" : "Contoh: 15000"} disabled={statusHakAksesKasir} style={{ width: '100%', padding: '8px 0', border: 'none', borderBottom: '2px solid #e5e7eb', backgroundColor: 'transparent', color: statusHakAksesKasir ? '#9ca3af' : '#1f2937', fontWeight: '500', outline: 'none', transition: 'border-color 0.2s', cursor: statusHakAksesKasir ? 'not-allowed' : 'text' }} onFocus={(e) => { if (!statusHakAksesKasir) e.target.style.borderBottom = '2px solid #4f46e5' }} onBlur={(e) => { if (!statusHakAksesKasir) e.target.style.borderBottom = '2px solid #e5e7eb' }} />
           </div>
 
-          {/* Field 3: Jumlah Stok */}
           <div style={{ flex: 1, minWidth: '100px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
-            <label htmlFor="jumlah_stok" style={{ fontSize: '12px', fontWeight: '700', color: '#4b5563', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-              Stok
-            </label>
-            <input type="number" id="jumlah_stok" value={stok} onChange={(e) => setStok(e.target.value)} required placeholder="Jumlah" 
-              style={{ width: '100%', padding: '8px 0', border: 'none', borderBottom: '2px solid #e5e7eb', backgroundColor: 'transparent', color: '#1f2937', fontWeight: '500', outline: 'none', transition: 'border-color 0.2s' }}
-              onFocus={(e) => e.target.style.borderBottom = '2px solid #4f46e5'}
-              onBlur={(e) => e.target.style.borderBottom = '2px solid #e5e7eb'} />
+            <label htmlFor="jumlah_stok" style={{ fontSize: '12px', fontWeight: '700', color: '#4b5563', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Stok</label>
+            <input type="number" id="jumlah_stok" value={stok} onChange={(e) => setStok(e.target.value)} required placeholder={statusHakAksesKasir ? "Terkunci" : "Jumlah"} disabled={statusHakAksesKasir} style={{ width: '100%', padding: '8px 0', border: 'none', borderBottom: '2px solid #e5e7eb', backgroundColor: 'transparent', color: statusHakAksesKasir ? '#9ca3af' : '#1f2937', fontWeight: '500', outline: 'none', transition: 'border-color 0.2s', cursor: statusHakAksesKasir ? 'not-allowed' : 'text' }} onFocus={(e) => { if (!statusHakAksesKasir) e.target.style.borderBottom = '2px solid #4f46e5' }} onBlur={(e) => { if (!statusHakAksesKasir) e.target.style.borderBottom = '2px solid #e5e7eb' }} />
           </div>
 
-          {/* Field 4: Kode Barcode */}
           <div style={{ flex: 1.5, minWidth: '150px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
-            <label htmlFor="kode_barcode" style={{ fontSize: '12px', fontWeight: '700', color: '#4b5563', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-              Barcode
-            </label>
-            <input type="text" id="kode_barcode" value={barcode} onChange={(e) => setBarcode(e.target.value)} placeholder="Opsional" 
-              style={{ width: '100%', padding: '8px 0', border: 'none', borderBottom: '2px solid #e5e7eb', backgroundColor: 'transparent', color: '#1f2937', fontWeight: '500', outline: 'none', transition: 'border-color 0.2s' }}
-              onFocus={(e) => e.target.style.borderBottom = '2px solid #4f46e5'}
-              onBlur={(e) => e.target.style.borderBottom = '2px solid #e5e7eb'} />
+            <label htmlFor="kode_barcode" style={{ fontSize: '12px', fontWeight: '700', color: '#4b5563', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Barcode</label>
+            <input type="text" id="kode_barcode" value={barcode} onChange={(e) => setBarcode(e.target.value)} placeholder={statusHakAksesKasir ? "Terkunci" : "Opsional"} disabled={statusHakAksesKasir} style={{ width: '100%', padding: '8px 0', border: 'none', borderBottom: '2px solid #e5e7eb', backgroundColor: 'transparent', color: statusHakAksesKasir ? '#9ca3af' : '#1f2937', fontWeight: '500', outline: 'none', transition: 'border-color 0.2s', cursor: statusHakAksesKasir ? 'not-allowed' : 'text' }} onFocus={(e) => { if (!statusHakAksesKasir) e.target.style.borderBottom = '2px solid #4f46e5' }} onBlur={(e) => { if (!statusHakAksesKasir) e.target.style.borderBottom = '2px solid #e5e7eb' }} />
           </div>
-
         </div>
 
-        <button type="submit" disabled={loading} 
-          style={{ background: idEdit ? 'linear-gradient(to right, #ea580c, #d97706)' : 'linear-gradient(to right, #4f46e5, #2563eb)', marginTop: '12px' }}
-          className="w-full text-white py-3 rounded-xl font-bold hover:opacity-90 disabled:bg-gray-400 shadow-md transition-all duration-200 transform active:scale-[0.99]">
+        <button type="submit" disabled={loading} style={{ background: idEdit ? 'linear-gradient(to right, #ea580c, #d97706)' : 'linear-gradient(to right, #4f46e5, #2563eb)', marginTop: '12px', display: statusHakAksesKasir ? 'none' : 'block' }} className="w-full text-white py-3 rounded-xl font-bold hover:opacity-90 disabled:bg-gray-400 shadow-md transition-all duration-200 transform active:scale-[0.99]">
           {loading ? 'Sedang Memproses...' : idEdit ? '💾 Simpan Perubahan Data Produk' : '➕ Daftarkan Produk Baru'}
         </button>
       </form>
 
-      {/* Tabel Daftar Produk */}
       <div style={{ border: '1px solid #e5e7eb', borderRadius: '16px', overflow: 'hidden', backgroundColor: 'white', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)' }}>
         <table style={{ width: '100%', textAlign: 'left', borderCollapse: 'collapse', fontSize: '13px' }}>
           <thead>
@@ -168,14 +147,12 @@ export default function Produk() {
               <th style={{ padding: '16px' }}>Harga</th>
               <th style={{ padding: '16px', textAlign: 'center' }}>Stok</th>
               <th style={{ padding: '16px', textAlign: 'center' }}>Barcode</th>
-              <th style={{ padding: '16px', textAlign: 'center' }}>Aksi</th>
+              {!statusHakAksesKasir && <th style={{ padding: '16px', textAlign: 'center' }}>Aksi</th>}
             </tr>
           </thead>
           <tbody>
             {produkList.length === 0 ? (
-              <tr>
-                <td colSpan="5" style={{ padding: '32px', color: '#9ca3af', textAlign: 'center', fontStyle: 'italic' }}>Belum ada produk terdaftar.</td>
-              </tr>
+              <tr><td colSpan={statusHakAksesKasir ? "4" : "5"} style={{ padding: '32px', color: '#9ca3af', textAlign: 'center', fontStyle: 'italic' }}>Belum ada produk terdaftar.</td></tr>
             ) : (
               produkList.map((p) => (
                 <tr key={p.id} style={{ borderBottom: '1px solid #f3f4f6' }} className="hover:bg-gray-50/80 transition">
@@ -183,12 +160,14 @@ export default function Produk() {
                   <td style={{ padding: '16px', color: '#374151' }}>Rp {p.harga.toLocaleString()}</td>
                   <td style={{ padding: '16px', textAlign: 'center', fontWeight: 'bold', color: '#374151' }}>{p.stok} Pcs</td>
                   <td style={{ padding: '16px', textAlign: 'center', color: '#6b7280' }}>{p.barcode || '-'}</td>
-                  <td style={{ padding: '16px', textAlign: 'center' }}>
-                    <div style={{ display: 'flex', gap: '8px', justifyContent: 'center' }}>
-                      <button onClick={() => pemicuEdit(p)} className="bg-amber-50 hover:bg-amber-100 text-amber-700 font-bold py-1.5 px-3 rounded-lg transition text-xs border border-amber-200">✏️ Edit</button>
-                      <button onClick={() => hapusProduk(p.id, p.nama_produk)} className="bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold py-1.5 px-3 rounded-lg transition text-xs border border-rose-200">🗑️ Hapus</button>
-                    </div>
-                  </td>
+                  {!statusHakAksesKasir && (
+                    <td style={{ padding: '16px', textAlign: 'center' }}>
+                      <div style={{ display: 'flex', gap: '8px', justifyContent: 'center' }}>
+                        <button onClick={() => pemicuEdit(p)} className="bg-amber-50 hover:bg-amber-100 text-amber-700 font-bold py-1.5 px-3 rounded-lg transition text-xs border border-amber-200">✏️ Edit</button>
+                        <button onClick={() => hapusProduk(p.id, p.nama_produk)} className="bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold py-1.5 px-3 rounded-lg transition text-xs border border-rose-200">🗑️ Hapus</button>
+                      </div>
+                    </td>
+                  )}
                 </tr>
               ))
             )}
