@@ -10,6 +10,10 @@ export default function Kasir() {
   const [notaTerakhir, setNotaTerakhir] = useState(null); 
   const [infoToko, setInfoToko] = useState({ nama_toko: 'TOKO AI PINTAR', alamat_toko: 'Jl. Utama', telepon_toko: '0812', pesan_bawah: 'Terima Kasih' });
 
+  // State untuk mengelola Diskon Toko
+  const [jenisDiskon, setJenisDiskon] = useState('nominal'); 
+  const [nilaiDiskon, setNilaiDiskon] = useState(''); 
+
   useEffect(() => {
     ambilDataProduk();
     ambilInfoToko();
@@ -35,22 +39,15 @@ export default function Kasir() {
       setKeranjang([...keranjang, { ...produk, qty: 1 }]);
     }
   };
-
-  // 📝 FITUR BARU: Fungsi untuk mengubah/mengedit kuantitas secara langsung (+ / -)
   const ubahKuantitasItem = (id, perubahan) => {
     setKeranjang(keranjang.map((item) => {
       if (item.id === id) {
         const qtyBaru = item.qty + perubahan;
-        
-        // Cek batas maksimum stok gudang harian
         if (qtyBaru > item.stok) {
           alert(`Gagal: Stok gudang untuk "${item.nama_produk}" tidak mencukupi!`);
           return item;
         }
-        
-        // Jika dikurangi sampai 0, otomatis pertahankan angka 1 (atau biarkan kasir klik tombol hapus sampah)
         if (qtyBaru < 1) return item;
-        
         return { ...item, qty: qtyBaru };
       }
       return item;
@@ -61,24 +58,33 @@ export default function Kasir() {
     setKeranjang(keranjang.filter((item) => item.id !== id));
   };
 
-  const totalHarga = keranjang.reduce((sum, item) => sum + (item.harga * item.qty), 0);
+  // Formula kalkulasi nominal potongan harga rupiah / persen
+  const subtotalHarga = keranjang.reduce((sum, item) => sum + (item.harga * item.qty), 0);
+  const nominalPotonganInput = Number(nilaiDiskon) || 0;
+
+  const totalPotonganDiskon = jenisDiskon === 'persen' 
+    ? Math.round((subtotalHarga * nominalPotonganInput) / 100)
+    : nominalPotonganInput;
+
+  const totalHargaSetelahDiskon = Math.max(0, subtotalHarga - totalPotonganDiskon);
   const angkaBayarMurni = Number(bayar.replace(/\./g, '')) || 0;
-  const kembalian = angkaBayarMurni - totalHarga;
+  const kembalian = angkaBayarMurni - totalHargaSetelahDiskon;
 
   const tanganiInputBayar = (e) => {
     const nilaiInput = e.target.value.replace(/\D/g, ''); 
     if (nilaiInput === '') { setBayar(''); return; }
     setBayar(Number(nilaiInput).toLocaleString('id-ID'));
   };
+
   const prosesPembayaran = async () => {
     if (keranjang.length === 0) return alert('Keranjang masih kosong!');
-    if (angkaBayarMurni < totalHarga) return alert('Uang pembayaran kurang!');
+    if (angkaBayarMurni < totalHargaSetelahDiskon) return alert('Uang pembayaran kurang!');
     setLoading(true);
 
     try {
       const { data: transaksiBaru, error: errTx } = await supabase
         .from('transaksi')
-        .insert([{ total_harga: Number(totalHarga), total_bayar: angkaBayarMurni, kembalian: Number(kembalian) }])
+        .insert([{ total_harga: Number(totalHargaSetelahDiskon), total_bayar: angkaBayarMurni, kembalian: Number(kembalian) }])
         .select().single();
 
       if (errTx) throw errTx;
@@ -92,12 +98,16 @@ export default function Kasir() {
         await supabase.from('produk').update({ stok: Number(item.stok - item.qty) }).eq('id', item.id);
       }
 
-      setNotaTerakhir({ id: transaksiBaru.id, tanggal: transaksiBaru.tanggal_transaksi, items: [...keranjang], total: totalHarga, bayar: angkaBayarMurni, kembali: kembalian });
+      setNotaTerakhir({ 
+        id: transaksiBaru.id, tanggal: transaksiBaru.tanggal_transaksi, items: [...keranjang], 
+        subtotal: subtotalHarga, potongan: totalPotonganDiskon, total: totalHargaSetelahDiskon, 
+        bayar: angkaBayarMurni, kembali: kembalian 
+      });
       alert('Transaksi Berhasil Disimpan!');
       
       setTimeout(() => {
         window.print();
-        setKeranjang([]); setBayar(''); setNotaTerakhir(null); ambilDataProduk(); 
+        setKeranjang([]); setBayar(''); setNilaiDiskon(''); setNotaTerakhir(null); ambilDataProduk(); 
       }, 500);
     } catch (error) {
       alert('Gagal: ' + error.message);
@@ -105,11 +115,12 @@ export default function Kasir() {
       setLoading(false);
     }
   };
-
   const produkTersaring = produkList.filter((p) => p.nama_produk.toLowerCase().includes(kataKunci.toLowerCase()));
 
   return (
     <div className="flex h-[calc(100vh-80px)] bg-gray-50 p-6 gap-6 min-h-screen">
+      
+      {/* MENU PRODUK UTAMA */}
       <div className="w-7/12 bg-white p-6 rounded-2xl border border-gray-100 shadow-md flex flex-col no-print">
         <div className="mb-6 flex flex-col gap-2">
           <h2 className="text-2xl font-black text-gray-900 tracking-tight">Menu Transaksi</h2>
@@ -122,7 +133,7 @@ export default function Kasir() {
         <div className="flex-1 overflow-y-auto pr-1">
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: '12px' }}>
             {produkTersaring.map((p) => (
-              <button key={p.id} onClick={() => tambahKeKeranjang(p)} style={{ padding: '16px', borderRadius: '16px', border: '1px solid #e5e7eb', backgroundColor: 'white', display: 'flex', flexDirection: 'column', justifyContext: 'space-between', height: '130px', textAlign: 'left', boxShadow: '0 1px 3px 0 rgba(0,0,0,0.05)', width: '100%', transition: 'all 0.2s', cursor: 'pointer' }} onMouseEnter={(e) => { e.currentTarget.style.borderColor = '#4f46e5'; e.currentTarget.style.backgroundColor = '#f5f3ff'; e.currentTarget.style.boxShadow = '0 4px 6px -1px rgba(79, 70, 229, 0.15)'; }} onMouseLeave={(e) => { e.currentTarget.style.borderColor = '#e5e7eb'; e.currentTarget.style.backgroundColor = 'white'; e.currentTarget.style.boxShadow = '0 1px 3px 0 rgba(0,0,0,0.05)'; }}>
+              <button key={p.id} onClick={() => tambahKeKeranjang(p)} style={{ padding: '16px', borderRadius: '16px', border: '1px solid #e5e7eb', backgroundColor: 'white', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', height: '130px', textAlign: 'left', boxShadow: '0 1px 3px 0 rgba(0,0,0,0.05)', width: '100%', transition: 'all 0.2s', cursor: 'pointer' }} onMouseEnter={(e) => { e.currentTarget.style.borderColor = '#4f46e5'; e.currentTarget.style.backgroundColor = '#f5f3ff'; e.currentTarget.style.boxShadow = '0 4px 6px -1px rgba(79, 70, 229, 0.15)'; }} onMouseLeave={(e) => { e.currentTarget.style.borderColor = '#e5e7eb'; e.currentTarget.style.backgroundColor = 'white'; e.currentTarget.style.boxShadow = '0 1px 3px 0 rgba(0,0,0,0.05)'; }}>
                 <div className="w-full">
                   <p className="font-extrabold text-gray-800 text-sm line-clamp-2 leading-snug m-0">{p.nama_produk}</p>
                   <span className={`inline-block mt-2 px-2.5 py-0.5 rounded-lg font-bold text-[9px] uppercase ${p.stok <= 5 ? 'bg-orange-50 text-orange-600 border border-orange-200' : 'bg-gray-100 text-gray-500'}`}>Stok: {p.stok}</span>
@@ -133,6 +144,7 @@ export default function Kasir() {
           </div>
         </div>
       </div>
+      {/* STRUKTURAL TABEL KERANJANG DAN FORM DISKON */}
       <div className="w-5/12 bg-white p-6 rounded-2xl border border-gray-100 shadow-md flex flex-col justify-between no-print">
         <div className="flex flex-col flex-1 overflow-hidden">
           <h2 className="text-xl font-bold text-gray-800 mb-4 border-b border-gray-100 pb-2 flex items-center justify-between">
@@ -157,8 +169,6 @@ export default function Kasir() {
                     {keranjang.map((item) => (
                       <tr key={item.id} style={{ borderBottom: '1px solid #f3f4f6' }}>
                         <td style={{ padding: '10px', fontWeight: '600', color: '#111827', maxWidth: '110px', wordBreak: 'break-word' }}>{item.nama_produk}<span style={{ display: 'block', fontSize: '10px', fontWeight: 'normal', color: '#9ca3af', marginTop: '2px' }}>@Rp{item.harga.toLocaleString()}</span></td>
-                        
-                        {/* ➖ ➕ TOMBOL EDIT KUANTITAS INTERAKTIF BARU */}
                         <td style={{ padding: '10px', textAlign: 'center' }}>
                           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
                             <button onClick={() => ubahKuantitasItem(item.id, -1)} style={{ background: '#f3f4f6', border: 'none', width: '22px', height: '22px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', fontSize: '11px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>-</button>
@@ -166,7 +176,6 @@ export default function Kasir() {
                             <button onClick={() => ubahKuantitasItem(item.id, 1)} style={{ background: '#f3f4f6', border: 'none', width: '22px', height: '22px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', fontSize: '11px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>+</button>
                           </div>
                         </td>
-
                         <td style={{ padding: '10px', textAlign: 'right', fontWeight: 'bold', color: '#111827' }}>Rp {(item.harga * item.qty).toLocaleString()}</td>
                         <td style={{ padding: '10px', textAlign: 'center' }}><button onClick={() => hapusDariKeranjang(item.id)} className="text-gray-400 hover:text-red-500 text-sm p-1 rounded">🗑️</button></td>
                       </tr>
@@ -179,19 +188,37 @@ export default function Kasir() {
         </div>
 
         <div className="border-t border-gray-100 pt-4 space-y-4">
-          <div className="flex justify-between font-black text-xl text-gray-900">
-            <span>Total Tagihan:</span>
-            <span className="text-indigo-600">Rp {totalHarga.toLocaleString()}</span>
+          <div style={{ display: 'flex', gap: '10px', alignItems: 'center', backgroundColor: '#f9fafb', padding: '10px', borderRadius: '12px', border: '1px solid #e5e7eb' }}>
+            <span style={{ fontSize: '11px', fontWeight: '800', color: '#4b5563' }}>🎟️ DISKON:</span>
+            <select value={jenisDiskon} onChange={(e) => { setJenisDiskon(e.target.value); setNilaiDiskon(''); }} style={{ padding: '4px 6px', fontSize: '11px', fontWeight: 'bold', border: '1px solid #d1d5db', borderRadius: '6px', backgroundColor: 'white' }}>
+              <option value="nominal">Rupiah (Rp)</option>
+              <option value="persen">Persen (%)</option>
+            </select>
+            <input type="number" value={nilaiDiskon} onChange={(e) => setNilaiDiskon(e.target.value)} placeholder={jenisDiskon === 'persen' ? "Contoh: 10" : "Contoh: 5000"} style={{ flex: 1, padding: '4px 8px', fontSize: '12px', border: '1px solid #d1d5db', borderRadius: '6px', outline: 'none' }} />
           </div>
+
+          <div className="space-y-1 text-sm font-semibold text-gray-500">
+            <div className="flex justify-between"><span>Subtotal:</span><span>Rp {subtotalHarga.toLocaleString()}</span></div>
+            {totalPotonganDiskon > 0 && (
+              <div className="flex justify-between text-rose-500"><span>Potongan Toko:</span><span>- Rp {totalPotonganDiskon.toLocaleString()}</span></div>
+            )}
+          </div>
+
+          <div className="flex justify-between font-black text-xl text-gray-900 border-t pt-2 border-dashed">
+            <span>Total Tagihan:</span>
+            <span className="text-indigo-600">Rp {totalHargaSetelahDiskon.toLocaleString()}</span>
+          </div>
+
           <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
             <label htmlFor="jumlah_bayar" style={{ fontSize: '11px', fontWeight: '700', color: '#4b5563', textTransform: 'uppercase' }}>Jumlah Uang Bayar</label>
             <input type="text" id="jumlah_bayar" value={bayar} placeholder="Contoh: 50.000" onChange={tanganiInputBayar} style={{ width: '100%', padding: '8px 0', border: 'none', borderBottom: '2px solid #e5e7eb', backgroundColor: 'transparent', color: '#1f2937', fontWeight: '700', fontSize: '16px', outline: 'none' }} onFocus={(e) => e.target.style.borderBottom = '2px solid #4f46e5'} onBlur={(e) => e.target.style.borderBottom = '2px solid #e5e7eb'} />
           </div>
+
           <div className="flex justify-between text-sm font-semibold text-gray-500">
             <span>Uang Kembali:</span>
             <span className={kembalian >= 0 ? "text-emerald-600 font-extrabold text-base" : "text-rose-500 font-bold"}>Rp {kembalian > 0 && bayar ? kembalian.toLocaleString() : 0}</span>
           </div>
-          <button onClick={prosesPembayaran} disabled={loading || keranjang.length === 0} style={{ background: 'linear-gradient(to right, #34f12d, #25eb2f)' }} className="w-full text-white py-4 rounded-xl font-bold shadow-md hover:opacity-95 transition-all duration-200 transform active:scale-[0.99]">{loading ? 'Memproses...' : '🖨️ Bayar & Cetak Struk'}</button>
+          <button onClick={prosesPembayaran} disabled={loading || keranjang.length === 0} className="w-full bg-gradient-to-r from-indigo-600 to-blue-600 text-white py-4 rounded-xl font-bold shadow-md">{loading ? 'Memproses...' : '🖨️ Bayar & Cetak Struk'}</button>
         </div>
       </div>
 
@@ -209,19 +236,28 @@ export default function Kasir() {
             <p style={{ margin: '5px 0' }}>--------------------------------</p>
           </div>
           <div style={{ marginBottom: '5px' }}>
-            {notaTerakhir.items.map((item) => (
-              <div key={item.id} style={{ marginBottom: '6px' }}>
-                <p style={{ margin: '0', fontWeight: 'bold' }}>{item.nama_produk}</p>
-                <div style={{ display: 'flex', jutsifyContent: 'space-between', fontSize: '10px' }}>
-                  <span>{item.qty} x Rp {item.harga.toLocaleString()}</span>
-                  <span style={{ marginLeft: 'auto' }}>Rp {(item.harga * item.qty).toLocaleString()}</span>
+            {notaTerakhir.items
+              .filter((item) => {
+                const n = item.nama_produk.toLowerCase();
+                return !n.includes('plastik') && !n.includes('kemasan') && !n.includes('kardus') && !n.includes('dus') && !n.includes('kresek') && !n.includes('paper bag');
+              })
+              .map((item) => (
+                <div key={item.id} style={{ marginBottom: '6px' }}>
+                  <p style={{ margin: '0', fontWeight: 'bold' }}>{item.nama_produk}</p>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px' }}>
+                    <span>{item.qty} x Rp {item.harga.toLocaleString()}</span>
+                    <span>Rp {(item.harga * item.qty).toLocaleString()}</span>
+                  </div>
                 </div>
-              </div>
-            ))}
+              ))}
             <p style={{ margin: '5px 0' }}>--------------------------------</p>
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', alignItems: 'end' }}>
-            <div style={{ display: 'flex', width: '100%' }}><span>TOTAL:</span><span style={{ marginLeft: 'auto', fontWeight: 'bold' }}>Rp {notaTerakhir.total.toLocaleString()}</span></div>
+            <div style={{ display: 'flex', width: '100%' }}><span>SUBTOTAL:</span><span style={{ marginLeft: 'auto' }}>Rp {notaTerakhir.subtotal.toLocaleString()}</span></div>
+            {notaTerakhir.potongan > 0 && (
+              <div style={{ display: 'flex', width: '100%' }}><span>DISKON:</span><span style={{ marginLeft: 'auto' }}>-Rp {notaTerakhir.potongan.toLocaleString()}</span></div>
+            )}
+            <div style={{ display: 'flex', width: '100%', fontWeight: 'bold' }}><span>TOTAL:</span><span style={{ marginLeft: 'auto' }}>Rp {notaTerakhir.total.toLocaleString()}</span></div>
             <div style={{ display: 'flex', width: '100%' }}><span>BAYAR:</span><span style={{ marginLeft: 'auto' }}>Rp {notaTerakhir.bayar.toLocaleString()}</span></div>
             <div style={{ display: 'flex', width: '100%', fontWeight: 'bold' }}><span>KEMBALI:</span><span style={{ marginLeft: 'auto' }}>Rp {notaTerakhir.kembali.toLocaleString()}</span></div>
           </div>
