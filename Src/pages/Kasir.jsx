@@ -28,18 +28,10 @@ export default function Kasir() {
     if (data) setInfoToko(data);
   };
 
-    const ambilDataProduk = async () => {
-    // 🔍 KOREKSI FILTER UTAMA: Hanya menarik produk yang berstatus AKTIF (is_active = true) untuk menu kasir
-    const { data, error } = await supabase
-      .from('produk')
-      .select('*')
-      .eq('is_active', true)
-      .order('nama_produk', { ascending: true });
-      
+  const ambilDataProduk = async () => {
+    const { data, error } = await supabase.from('produk').select('*').eq('is_active', true).order('nama_produk', { ascending: true });
     if (!error) setProdukList(data || []);
   };
-
-
   const pemicuKlikProduk = async (produk) => {
     const { data: addons } = await supabase.from('opsi_tambahan').select('*').eq('produk_id', produk.id);
     if (addons && addons.length > 0) {
@@ -60,40 +52,60 @@ export default function Kasir() {
       setAddonYangDipilih([...addonYangDipilih, addon]);
     }
   };
+
   const simpanProdukDenganAddon = () => {
     if (!produkTerpilihAddon) return;
     eksekusiMasukKeranjang(produkTerpilihAddon, addonYangDipilih);
     setBukaPopupAddon(false);
     setProdukTerpilihAddon(null);
   };
-
   const eksekusiMasukKeranjang = (produk, addonsPilihan) => {
+    let keranjangBaru = [...keranjang];
+
     const stringIdAddon = addonsPilihan.map(a => a.id).sort().join('-');
     const idKeranjangUnik = stringIdAddon ? `${produk.id}-${stringIdAddon}` : `${produk.id}`;
     const totalHargaAddon = addonsPilihan.reduce((sum, a) => sum + a.harga_opsi, 0);
     const hargaFinalProduk = produk.harga + totalHargaAddon;
 
-    const ada = keranjang.find((item) => item.idUnik === idKeranjangUnik);
-    if (ada) {
-      if (ada.qty >= produk.stok) return alert('Stok produk tidak mencukupi!');
-      setKeranjang(keranjang.map((item) => item.idUnik === idKeranjangUnik ? { ...ada, qty: ada.qty + 1 } : item));
+    const adaUtama = keranjangBaru.find((item) => item.idUnik === idKeranjangUnik);
+    if (adaUtama) {
+      if (adaUtama.qty >= produk.stok) return alert('Stok produk utama tidak mencukupi!');
+      adaUtama.qty += 1;
     } else {
-      if (produk.stok < 1) return alert('Stok produk habis!');
+      if (produk.stok < 1) return alert('Stok produk utama habis!');
       const labelTeksAddon = addonsPilihan.map(a => `${a.nama_opsi}`).join(', ');
-      setKeranjang([...keranjang, { 
+      keranjangBaru.push({ 
         ...produk, idUnik: idKeranjangUnik, harga: hargaFinalProduk, hargaAsliTanpaAddon: produk.harga, labelAddonText: labelTeksAddon, qty: 1 
-      }]);
+      });
     }
+
+    const namaCariKecil = produk.nama_produk.toLowerCase();
+    const apakahProdukUtama = !namaCariKecil.includes('plastik') && !namaCariKecil.includes('saos') && !namaCariKecil.includes('sambal');
+
+    if (apakahProdukUtama) {
+      const itemPlastikOtomatis = produkList.find(p => p.nama_produk.toLowerCase().includes('plastik'));
+      const itemSaosOtomatis = produkList.find(p => p.nama_produk.toLowerCase().includes('saos') || p.nama_produk.toLowerCase().includes('sambal'));
+
+      // PENGUNCI CERDAS: Hanya masukkan pendukung otomatis jika di dalam keranjang BELUM ADA item serupa
+      const apakahPlastikSudahAda = keranjangBaru.some(item => item.nama_produk.toLowerCase().includes('plastik'));
+      if (itemPlastikOtomatis && itemPlastikOtomatis.stok > 0 && !apakahPlastikSudahAda) {
+        keranjangBaru.push({ ...itemPlastikOtomatis, idUnik: `${itemPlastikOtomatis.id}`, hargaAsliTanpaAddon: itemPlastikOtomatis.harga, qty: 1 });
+      }
+
+      const apakahSaosSudahAda = keranjangBaru.some(item => item.nama_produk.toLowerCase().includes('saos') || item.nama_produk.toLowerCase().includes('sambal'));
+      if (itemSaosOtomatis && itemSaosOtomatis.stok > 0 && !apakahSaosSudahAda) {
+        keranjangBaru.push({ ...itemSaosOtomatis, idUnik: `${itemSaosOtomatis.id}`, hargaAsliTanpaAddon: itemSaosOtomatis.harga, qty: 1 });
+      }
+    }
+
+    setKeranjang(keranjangBaru);
   };
 
   const ubahKuantitasItem = (idUnik, perubahan) => {
     setKeranjang(keranjang.map((item) => {
       if (item.idUnik === idUnik) {
         const qtyBaru = item.qty + perubahan;
-        if (qtyBaru > item.stok) {
-          alert(`Gagal: Stok gudang tidak mencukupi!`);
-          return item;
-        }
+        if (qtyBaru > item.stok) { alert(`Gagal: Stok tidak mencukupi!`); return item; }
         if (qtyBaru < 1) return item;
         return { ...item, qty: qtyBaru };
       }
@@ -104,7 +116,6 @@ export default function Kasir() {
   const hapusItemDariKeranjang = (idUnik) => {
     setKeranjang(keranjang.filter((item) => item.idUnik !== idUnik));
   };
-
   const subtotalHarga = keranjang.reduce((sum, item) => sum + (item.harga * item.qty), 0);
   const nominalPotonganInput = Number(nilaiDiskon) || 0;
   const totalPotonganDiskon = jenisDiskon === 'persen' ? Math.round((subtotalHarga * nominalPotonganInput) / 100) : nominalPotonganInput;
@@ -117,6 +128,7 @@ export default function Kasir() {
     if (nilaiInput === '') { setBayar(''); return; }
     setBayar(Number(nilaiInput).toLocaleString('id-ID'));
   };
+
   const prosesPembayaran = async () => {
     if (keranjang.length === 0) return alert('Keranjang masih kosong!');
     if (angkaBayarMurni < totalHargaSetelahDiskon) return alert('Uang pembayaran kurang!');
@@ -157,21 +169,19 @@ export default function Kasir() {
 
   return (
     <div className="flex h-[calc(100vh-80px)] bg-gray-50 p-6 gap-6 min-h-screen">
-      
-      {/* SISI KIRI: MENU PRODUK */}
       <div className="w-7/12 bg-white p-6 rounded-2xl border border-gray-100 shadow-md flex flex-col no-print">
         <div className="mb-6 flex flex-col gap-2">
           <h2 className="text-2xl font-black text-gray-900 tracking-tight">Menu Transaksi</h2>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
             <label htmlFor="cari_barang" style={{ fontSize: '11px', fontWeight: '700', color: '#4b5563', textTransform: 'uppercase' }}>Pencarian Cepat Barang</label>
-            <input type="text" id="cari_barang" value={kataKunci} onChange={(e) => setKataKunci(e.target.value)} placeholder="Ketik nama produk..." style={{ width: '100%', padding: '8px 0', border: 'none', borderBottom: '2px solid #e5e7eb', backgroundColor: 'transparent', color: '#1f2937', fontWeight: '500', outline: 'none' }} onFocus={(e) => e.target.style.borderBottom = '2px solid #4f46e5'} onBlur={(e) => e.target.style.borderBottom = '2px solid #e5e7eb'} />
+            <input type="text" id="cari_barang" value={kataKunci} onChange={(e) => setKataKunci(e.target.value)} placeholder="Ketik nama produk..." style={{ width: '100%', padding: '8px 0', border: 'none', borderBottom: '2px solid #e5e7eb', backgroundColor: 'transparent', color: '#1f2937', fontWeight: '500', outline: 'none' }} />
           </div>
         </div>
 
         <div className="flex-1 overflow-y-auto pr-1">
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '12px' }}>
             {produkTersaring.map((p) => (
-              <button key={p.id} onClick={() => pemicuKlikProduk(p)} style={{ padding: '16px', borderRadius: '16px', border: '1px solid #e5e7eb', backgroundColor: 'white', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', height: '130px', textAlign: 'left', boxShadow: '0 1px 3px 0 rgba(0,0,0,0.05)', width: '100%', transition: 'all 0.2s', cursor: 'pointer' }} onMouseEnter={(e) => { e.currentTarget.style.borderColor = '#4f46e5'; e.currentTarget.style.backgroundColor = '#f5f3ff'; e.currentTarget.style.boxShadow = '0 4px 6px -1px rgba(79, 70, 229, 0.15)'; }} onMouseLeave={(e) => { e.currentTarget.style.borderColor = '#e5e7eb'; e.currentTarget.style.backgroundColor = 'white'; e.currentTarget.style.boxShadow = '0 1px 3px 0 rgba(0,0,0,0.05)'; }}>
+              <button key={p.id} onClick={() => pemicuKlikProduk(p)} style={{ padding: '16px', borderRadius: '16px', border: '1px solid #e5e7eb', backgroundColor: 'white', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', height: '130px', textAlign: 'left', boxShadow: '0 1px 3px 0 rgba(0,0,0,0.05)', width: '100%', transition: 'all 0.2s' }} onMouseEnter={(e) => { e.currentTarget.style.borderColor = '#4f46e5'; e.currentTarget.style.backgroundColor = '#f5f3ff'; }} onMouseLeave={(e) => { e.currentTarget.style.borderColor = '#e5e7eb'; e.currentTarget.style.backgroundColor = 'white'; }}>
                 <div className="w-full">
                   <p className="font-extrabold text-gray-800 text-sm line-clamp-2 leading-snug m-0">{p.nama_produk}</p>
                   <span className={`inline-block mt-2 px-2.5 py-0.5 rounded-lg font-bold text-[9px] uppercase ${p.stok <= 5 ? 'bg-orange-50 text-orange-600 border border-orange-200' : 'bg-gray-100 text-gray-500'}`}>Stok: {p.stok}</span>
@@ -182,7 +192,7 @@ export default function Kasir() {
           </div>
         </div>
       </div>
-      {/* SISI KANAN: TABEL RINCIAN KERANJANG BELANJA */}
+      {/* SISI KANAN: TABEL RINCIAN BELANJA */}
       <div className="w-5/12 bg-white p-6 rounded-2xl border border-gray-100 shadow-md flex flex-col justify-between no-print">
         <div className="flex flex-col flex-1 overflow-hidden">
           <h2 className="text-xl font-bold text-gray-800 mb-4 border-b border-gray-100 pb-2 flex items-center justify-between">
@@ -212,9 +222,9 @@ export default function Kasir() {
                         </td>
                         <td style={{ padding: '10px', textAlign: 'center' }}>
                           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
-                            <button onClick={() => ubahKuantitasItem(item.idUnik, -1)} style={{ background: '#f3f4f6', border: 'none', width: '22px', height: '22px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', fontSize: '11px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>-</button>
+                            <button onClick={() => ubahKuantitasItem(item.idUnik, -1)} style={{ background: '#f3f4f6', border: 'none', width: '22px', height: '22px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', fontSize: '11px' }}>-</button>
                             <span style={{ fontWeight: 'bold', minWidth: '16px', display: 'inline-block' }}>{item.qty}</span>
-                            <button onClick={() => ubahKuantitasItem(item.idUnik, 1)} style={{ background: '#f3f4f6', border: 'none', width: '22px', height: '22px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', fontSize: '11px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>+</button>
+                            <button onClick={() => ubahKuantitasItem(item.idUnik, 1)} style={{ background: '#f3f4f6', border: 'none', width: '22px', height: '22px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', fontSize: '11px' }}>+</button>
                           </div>
                         </td>
                         <td style={{ padding: '10px', textAlign: 'right', fontWeight: 'bold', color: '#111827' }}>Rp {(item.harga * item.qty).toLocaleString()}</td>
@@ -246,13 +256,13 @@ export default function Kasir() {
           <div className="flex justify-between font-black text-xl text-gray-900 border-t pt-2 border-dashed"><span>Total Tagihan:</span><span className="text-indigo-600">Rp {totalHargaSetelahDiskon.toLocaleString()}</span></div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
             <label htmlFor="jumlah_bayar" style={{ fontSize: '11px', fontWeight: '700', color: '#4b5563', textTransform: 'uppercase' }}>Jumlah Uang Bayar</label>
-            <input type="text" id="jumlah_bayar" value={bayar} placeholder="Contoh: 50.000" onChange={tanganiInputBayar} style={{ width: '100%', padding: '8px 0', border: 'none', borderBottom: '2px solid #e5e7eb', backgroundColor: 'transparent', color: '#1f2937', fontWeight: '700', fontSize: '16px', outline: 'none' }} onFocus={(e) => e.target.style.borderBottom = '2px solid #4f46e5'} onBlur={(e) => e.target.style.borderBottom = '2px solid #e5e7eb'} />
+            <input type="text" id="jumlah_bayar" value={bayar} placeholder="Contoh: 50.000" onChange={tanganiInputBayar} style={{ width: '100%', padding: '8px 0', border: 'none', borderBottom: '2px solid #e5e7eb', backgroundColor: 'transparent', color: '#1f2937', fontWeight: '700', fontSize: '16px', outline: 'none' }} />
           </div>
           <div className="flex justify-between text-sm font-semibold text-gray-500"><span>Uang Kembali:</span><span className={kembalian >= 0 ? "text-emerald-600 font-extrabold text-base" : "text-rose-500 font-bold"}>Rp {kembalian > 0 && bayar ? kembalian.toLocaleString() : 0}</span></div>
           <button onClick={prosesPembayaran} disabled={loading || keranjang.length === 0} className="w-full bg-gradient-to-r from-indigo-600 to-blue-600 text-white py-4 rounded-xl font-bold shadow-md">{loading ? 'Memproses...' : '🖨️ Bayar & Cetak Struk'}</button>
         </div>
       </div>
-      {/* 🧾 STRUK PRINT THERMAL 58mm SAH */}
+      {/* STRUK PRINT THERMAL 58mm */}
       {notaTerakhir && (
         <div className="print-only" style={{ width: '58mm', padding: '0 2mm', fontFamily: 'monospace', fontSize: '11px', color: 'black', backgroundColor: 'white' }}>
           <div style={{ textAlign: 'center', marginBottom: '10px' }}>
@@ -267,11 +277,11 @@ export default function Kasir() {
             <p style={{ margin: '5px 0' }}>--------------------------------</p>
           </div>
           <div style={{ marginBottom: '5px' }}>
-            {notaTerakhir.items.filter((item) => { const n = item.nama_produk.toLowerCase(); return !n.includes('0plastik') && !n.includes('0kemasan') && !n.includes('0sterefoam') && !n.includes('0dus') && !n.includes('0kresek') && !n.includes('0paper bag'); }).map((item) => (
+            {notaTerakhir.items.filter((item) => { const n = item.nama_produk.toLowerCase(); return !n.includes('plastik') && !n.includes('kemasan') && !n.includes('kardus') && !n.includes('saos') && !n.includes('sterefoam') && !n.includes('paper bag'); }).map((item) => (
               <div key={item.idUnik} style={{ marginBottom: '6px' }}>
                 <p style={{ margin: '0', fontWeight: 'bold' }}>{item.nama_produk}</p>
                 {item.labelAddonText && <p style={{ margin: '0 0 0 6px', fontSize: '8px', color: 'black' }}>* ({item.labelAddonText})</p>}
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px' }}><span>{item.qty} x Rp {item.hargaAsliTanpaAddon.toLocaleString()}</span><span style={{ marginLeft: 'auto' }}>Rp {(item.harga * item.qty).toLocaleString()}</span></div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px' }}><span>{item.qty} x Rp {(item.hargaAsliTanpaAddon || item.harga).toLocaleString()}</span><span style={{ marginLeft: 'auto' }}>Rp {(item.harga * item.qty).toLocaleString()}</span></div>
               </div>
             ))}
             <p style={{ margin: '5px 0' }}>--------------------------------</p>
@@ -287,7 +297,7 @@ export default function Kasir() {
         </div>
       )}
 
-      {/* JENDELA POPUP MODAL ADDITIONAL VARIAN */}
+      {/* POPUP MODAL ADDITIONAL VARIAN */}
       {bukaPopupAddon && produkTerpilihAddon && (
         <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', backgroundColor: 'rgba(0,0,0,0.4)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 200 }}>
           <div style={{ backgroundColor: 'white', padding: '24px', borderRadius: '24px', width: '100%', maxWidth: '380px', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)' }}>
@@ -305,9 +315,9 @@ export default function Kasir() {
                 );
               })}
             </div>
-            <div style={{ display: 'flex', gap: '10px' }}>
-              <button onClick={() => { setBukaPopupAddon(false); setProdukTerpilihAddon(null); }} style={{ flex: 1, padding: '10px', border: '1px solid #e5e7eb', borderRadius: '12px', background: 'none', fontWeight: 'bold', cursor: 'pointer', color: '#4b5563', fontSize: '12px' }}>Batal</button>
-              <button onClick={simpanProdukDenganAddon} style={{ flex: 2, padding: '10px', border: 'none', borderRadius: '12px', background: 'linear-gradient(to right, #ea580c, #f97316)', color: 'white', fontWeight: 'bold', cursor: 'pointer', fontSize: '12px' }}>Masukkan Keranjang</button>
+            <div style={{ display: 'flex', gap: '10px', marginTop: '4px' }}>
+              <button type="button" onClick={() => { setBukaPopupAddon(false); setProdukTerpilihAddon(null); }} className="flex-1 py-2 border rounded-xl font-bold text-xs text-gray-500 bg-white">Batal</button>
+              <button type="button" onClick={simpanProdukDenganAddon} className="flex-2 py-2 border rounded-xl font-bold text-xs text-white bg-orange-500">Masukkan Keranjang</button>
             </div>
           </div>
         </div>
